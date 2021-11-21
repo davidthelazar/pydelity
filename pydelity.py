@@ -1,10 +1,15 @@
 from enum import Enum
 import csv
 # import retirement as re
-
+#TODO: should portfolio/career know the current year? if so, does 
+#taxBracket class need to have a failover for unhandled years? 
+#and if so, should it try to predict brackets or just keep the most 
+#recent? 
+#TODO: include inflation in some sense
 def getMonthlyRate(annualRate):
     return ((1+annualRate)^(1/12)) - 1
-
+#---------------------------------------
+#enumerations
 class accountType(Enum):
     HSA = 1
     TRADITIONAL401K = 2
@@ -12,7 +17,67 @@ class accountType(Enum):
     TRADITIONALIRA = 3
     ROTHIRA = 4
     BROKERAGE = 5 
+
+class taxType(Enum):
+    #currently unused
+    FEDERAL = 1
+    STATE = 2
+    MEDICARE = 3
+    SOCIALSECURITY = 4
+#---------------------------------------
+#taxes
+class taxBracket:
+    thresholds = [] #Start at zero typically; for each rate, this is the minimum amount at which that rate starts
+    rates = []
+    stdDeduction = 0
+    credits = 0 #uh, not sure on this
     
+    def __init__(this,t=[],r=[],d=0):
+        this.thresholds = t
+        this.rates = r
+        this.stdDeduction = d
+    
+    def getTax(this,gross):
+        for idx in range(len(this.rates)):
+            if idx == 0:
+                marginalRates = [this.rates[idx]]
+            else:
+                marginalRates.append(this.rates[idx]-this.rates[idx-1])
+
+        taxableIncome = gross-this.stdDeduction
+        if taxableIncome<=0:
+            return 0
+        marginalTax = [r*max(0,taxableIncome-t) for t,r in zip(this.thresholds,marginalRates)]
+        
+        totalTax = sum(marginalTax) - this.credits
+        
+        return totalTax
+        
+    def getTaxForRange(this,incomeRange):
+        #untested
+         taxes = [this.getTax(i) for i in incomeRange]
+         return taxes[1]-taxes[0]
+         
+    def getTaxMonthly(this,annualGross):
+        return this.getTax(annualGross)/12
+
+    @staticmethod
+    def getBracketsForYear(year):
+    #TODO: Should we be grabbing this from a file or something?
+        if year == 2021:
+            fParams = ([0,19900,81050,172750,329850,418850,628300],[.1,.12,.22,.24,.32,.35,.37],25100)
+            sParams = ([0,1000,6000],[.02,.04,.05],0)
+            mParams = ([0,200000],[.0145,.0235],0)
+            ssParams = ([0,142800],[.062,0],0)
+        if year == 2022:
+            fParams = ([0,20500,83550,178151,340100,431900,647850],[.1,.12,.22,.24,.32,.35,.37],25900)
+            sParams = ([0,1000,6000],[.02,.04,.05],0)
+            mParams = ([0,200000],[.0145,.0235],0)
+            ssParams = ([0,142800],[.062,0],0)
+        
+        return {'federal':taxBracket(*fParams),'state':taxBracket(*sParams),'medicare':taxBracket(*mParams),'socialsecurity':taxBracket(*ssParams)}            
+#---------------------------------------
+#paycheck/withholding/w4 stuff  
 class paycheck:
     gross = 0
     net = 0
@@ -48,81 +113,20 @@ class paycheck:
         print('Social Security Withholding: $'+"{:.2f}".format(this.withholding['socialsecurity']))                
         print('----------------------------')
         print('Net Pay: $' + "{:.2f}".format(this.net))
-        
-class taxBracket:
-    thresholds = [] #Start at zero typically; for each rate, this is the minimum amount at which that rate starts
-    rates = []
-    stdDeduction = 0
-    credits = 0
-    # maxTax = 1000000000 #basically Inf
-    
-    def __init__(this,t=[],r=[],d=0):
-        this.thresholds = t
-        this.rates = r
-        this.stdDeduction = d
-    
-    def getTax(this,gross):
-        for idx in range(len(this.rates)):
-            if idx == 0:
-                marginalRates = [this.rates[idx]]
-            else:
-                marginalRates.append(this.rates[idx]-this.rates[idx-1])
-
-        taxableIncome = gross-this.stdDeduction
-        if taxableIncome<=0:
-            return 0
-        marginalTax = [r*max(0,taxableIncome-t) for t,r in zip(this.thresholds,marginalRates)]
-        # for (idx,threshold) in enumerate(this.thresholds):
-        #     marginalIncome = max(0,taxableIncome-threshold)
-        #     marginalTax.append(marginalIncome*marginalRates[idx])
-        totalTax = sum(marginalTax) - this.credits
-        # if totalTax>maxTax:
-        #     totalTax = maxTax
-        # effectiveRate = totalTax/taxableIncome
-        return totalTax#,effectiveRate
-    def getTaxForRange(this,incomeRange):
-        #untested
-         taxes = [this.getTax(i) for i in incomeRange]
-         return taxes[1]-taxes[0]
-    def getTaxMonthly(this,annualGross):
-        return this.getTax(annualGross)/12
-
-    @staticmethod
-    def getBracketsForYear(year):
-
-        if year == 2021:
-            fParams = ([0,19900,81050,172750,329850,418850,628300],[.1,.12,.22,.24,.32,.35,.37],25100)
-            sParams = ([0,1000,6000],[.02,.04,.05],0)
-            mParams = ([0,200000],[.0145,.0235],0)
-            ssParams = ([0,142800],[.062,0],0)
-        if year == 2022:
-            fParams = ([0,20500,83550,178151,340100,431900,647850],[.1,.12,.22,.24,.32,.35,.37],25900)
-            sParams = ([0,1000,6000],[.02,.04,.05],0)
-            mParams = ([0,200000],[.0145,.0235],0)
-            ssParams = ([0,142800],[.062,0],0)
-        
-        return {'federal':taxBracket(*fParams),'state':taxBracket(*sParams),'medicare':taxBracket(*mParams),'socialsecurity':taxBracket(*ssParams)}
-        
              
 class w4:
     credits = 0
     deductions = 0 #above standard
     
 class career:
-    salary = 0 #annual #do we want this?
+    salary = 0 
     brackets = {}
-    # federalBracket = re.taxBracket()
-    # stateBracket = re.taxBracket()
-    # medicareBracket = re.taxBracket()
-    # ssBracket = re.taxBracket()
     preTaxBenefits = {} #monthly
     postTaxBenefits = {} #monthly
-    #investments are the amount contributed from pay. The account itself will determine match, etc 
+    #investments are the amount contributed from pay. The account itself will determine match, etc -----right? should it?
     preTaxInvestments = {} #monthly
     postTaxInvestments = {} #monthly
     federalW4 = w4()
-    #
-    # def getTotalTax(this):
     
     def getPaycheck(this):
         pc = paycheck()
@@ -167,19 +171,16 @@ class career:
         return this.getTaxableIncome() - this.brackets['federal'].getTax(this.getTaxableIncome()) - this.brackets['medicare'].getTax(this.getMedicareTaxableIncome()) - this.brackets['socialsecurity'].getTax(this.getMedicareTaxableIncome())
     def getRaise(this,frac):
         this.salary = this.salary*(1+frac)
-    
+#---------------------------------------
+#retirement accounts    
 class account:
     #TODO: any way to make 401k/ira limits work across trad/roth? Maybe the limits shouldn't even be part of the account, but part of the portfolio instead, and managed before a contribution is ever made
     #TODO: 
     name = ''
-    # taxRateIn = 0
-    # taxRateGrowth = 0
-    # taxRateOut = 0
     annualMax = 1000000
     annualGrowthRate = .05
     balance = 0
     principal = 0
-    # totalTax = 0
     matchRate = 0
     matchMin = 0        
     matchMax = 0
@@ -202,28 +203,18 @@ class account:
         this.currentYearMatch = this.currentYearMatch+matchDollars
         this.currentYearContribution = this.currentYearContribution + dollars
         totalDollars = dollars+matchDollars
-        # tax = dollars*this.taxRateIn #nothing that matches should also have taxratein, right?
+
         this.balance = this.balance + totalDollars
         this.principal = this.principal+totalDollars
-
-        # this.totalTax = this.totalTax + tax
-        
-        # return overage
         
     def compoundAnnual(this,years):
         growth = this.balance*(((1+this.annualGrowthRate)**years)-1)
-        # tax = growth*this.taxRateGrowth
         this.balance = this.balance+growth
-        # this.totalTax = this.totalTax+tax
-        # return (growth,tax)
 
     def compoundMonthly(this,months):
         growth = this.balance*(((1+getMonthlyRate(this.annualGrowthRate))**months)-1)
-        # tax = growth*this.taxRateGrowth
         this.balance = this.balance+growth
-        # this.totalTax = this.totalTax+tax
-        # return (growth,tax)
-    
+ 
     def withdraw(this,dollars):
         #withdraws principal first for anything but roth 401k
         if dollars>this.balance:
@@ -279,8 +270,11 @@ class account:
     #     if burden>dollarsRemaining:
     #         dollarsSafe = dollarsTotal/(1+this.taxRateIn);
     #     return dollarsSafe
+#---------------------------------------
+#portfolio management
     
 class portfolioLog:
+    #TODO: Really need to think about what the most useful info in each row would be
     logs = []
     
     def addEntry(this,age,netWorth,tax):
@@ -295,7 +289,6 @@ class portfolioLog:
                 row = [log['age'],log['netWorth'],log['tax']]
                 csvWriter.writerow(row)
                 
-                     
 class portfolio:
     accounts = []
     job = career()
@@ -315,7 +308,7 @@ class portfolio:
     
     def getPaid(this): 
         1
-        #TODOsort paycheck output into relevant fields here
+        #TODO: sort paycheck output into relevant fields here
         # pc = this.job.getPaycheck()
         # this.cash = this.cash+pc.net
         # thiz
@@ -389,7 +382,9 @@ class portfolio:
             total = total+account.balance
         
         return total
-    
+#---------------------------------------
+#examples and tests
+
 def testPaycheck():
     sim = career()
     sim.salary = 90000
@@ -398,19 +393,6 @@ def testPaycheck():
     sim.federalW4.deductions = 0
     #brackets here are just used for calculating withholding
     sim.brackets = taxBracket.getBracketsForYear(2021)
-    # sim.federalBracket = re.taxBracket()
-    # sim.federalBracket.thresholds = [0,19900,81050,172750,329850,418850,628300]
-    # sim.federalBracket.rates = [.1,.12,.22,.24,.32,.35,.37]
-    # sim.federalBracket.stdDeduction = 25100
-    # sim.stateBracket = re.taxBracket()
-    # sim.stateBracket.thresholds = [0,1000,6000]
-    # sim.stateBracket.rates = [.02,.04,.05]
-    # sim.medicareBracket = re.taxBracket()
-    # sim.medicareBracket.thresholds = [0,200000]
-    # sim.medicareBracket.rates = [.0145,.0235]
-    # sim.ssBracket = re.taxBracket()
-    # sim.ssBracket.thresholds = [0,142800]
-    # sim.ssBracket.rates = [.062,0]
     sim.preTaxBenefits = {"dental":39.44,"medical":318.81,"vision":33.83}
     sim.postTaxBenefits = {"life":14}
     sim.preTaxInvestments = {accountType.HSA:300,accountType.TRADITIONAL401K:1625}
