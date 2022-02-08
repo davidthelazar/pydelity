@@ -1,4 +1,4 @@
-#pydelity
+# pydelity
 
 pydelity is a set of python tools for modeling personal finances and retirement planning.
 
