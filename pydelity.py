@@ -1,35 +1,48 @@
 from enum import Enum
 import csv
-# import retirement as re
 #TODO: should portfolio/career know the current year? if so, does 
 #taxBracket class need to have a failover for unhandled years? 
 #and if so, should it try to predict brackets or just keep the most 
 #recent? 
 #TODO: include inflation in some sense
+#TODO: Everything tax related assumes Married Filing Joint. Should I fix that?
+#TODO: AGI method
+#TODO: MAGI method
+#TODO: check income limits for Traditional IRA, Roth IRA, spousal IRA
+#TODO: W2 Generator
+#TODO: accountRules structure, for consolidated place to define all rules (instead of "if tradIRA"-type checks tucked away here and there)
+#---------------------------------------
+#helper functions
 def getMonthlyRate(annualRate):
     return ((1+annualRate)^(1/12)) - 1
 #---------------------------------------
 #enumerations
 class accountType(Enum):
-    HSA = 1
-    TRADITIONAL401K = 2
+    HSA = 0
+    TRADITIONAL401K = 1
     ROTH401K = 2
     TRADITIONALIRA = 3
     ROTHIRA = 4
     BROKERAGE = 5 
+    FIVETWENTYNINE = 6
 
 class taxType(Enum):
-    #currently unused
+    #currently unused, but they tell me online I shouldn't use strings for this shit
     FEDERAL = 1
     STATE = 2
     MEDICARE = 3
     SOCIALSECURITY = 4
+    CAPITALGAINS = 5
+class filingStatus(Enum):
+    #currently unused, but they tell me online I shouldn't use strings for this shit
+    SINGLE = 1
+    MARRIEDFILINGSEPARATE = 2
+    MARRIEDFILINGJOINT = 3
+    HEADOFHOUSEHOLD = 4    
 #---------------------------------------
 #taxes
 class taxBracket:
-    thresholds = [] #Start at zero typically; for each rate, this is the minimum amount at which that rate starts
-    rates = []
-    stdDeduction = 0
+
     credits = 0 #uh, not sure on this
     
     def __init__(this,t=[],r=[],d=0):
@@ -63,29 +76,43 @@ class taxBracket:
 
     @staticmethod
     def getBracketsForYear(year):
-    #TODO: Should we be grabbing this from a file or something?
+        #TODO: These are all MFJ, should I add others? if so, how? 
+        #TODO: Should we be grabbing this from a file or something?
+        #TODO: in future, use some inflation factor?
         if year == 2021:
             fParams = ([0,19900,81050,172750,329850,418850,628300],[.1,.12,.22,.24,.32,.35,.37],25100)
             sParams = ([0,1000,6000],[.02,.04,.05],0)
             mParams = ([0,200000],[.0145,.0235],0)
             ssParams = ([0,142800],[.062,0],0)
-        if year == 2022:
+            cgParams = ([0,80800,501600],[0,.15,.20],0)
+        elif year >= 2022:
             fParams = ([0,20500,83550,178151,340100,431900,647850],[.1,.12,.22,.24,.32,.35,.37],25900)
             sParams = ([0,1000,6000],[.02,.04,.05],0)
             mParams = ([0,200000],[.0145,.0235],0)
             ssParams = ([0,142800],[.062,0],0)
-        
-        return {'federal':taxBracket(*fParams),'state':taxBracket(*sParams),'medicare':taxBracket(*mParams),'socialsecurity':taxBracket(*ssParams)}            
+            cgParams = ([0,83350,517200],[0,.15,.20],0)
+        # else:
+        #     #currently same as 2022 for all years >2022
+        #     fParams = ([0,20500,83550,178151,340100,431900,647850],[.1,.12,.22,.24,.32,.35,.37],25900)
+        #     sParams = ([0,1000,6000],[.02,.04,.05],0)
+        #     mParams = ([0,200000],[.0145,.0235],0)
+        #     ssParams = ([0,142800],[.062,0],0)
+        #     cgParams = ([0,83350,517200],[0,.15,.20],0)
+            
+        return {'federal':taxBracket(*fParams),'state':taxBracket(*sParams),'medicare':taxBracket(*mParams),'socialsecurity':taxBracket(*ssParams),'capitalgains':taxBracket(*cgParams)}            
 #---------------------------------------
 #paycheck/withholding/w4 stuff  
 class paycheck:
-    gross = 0
-    net = 0
-    withholding = {}
-    preTaxBenefits = {}
-    postTaxBenefits = {}
-    preTaxInvestments = {}
-    postTaxInvestments = {}  
+    def __init__(this):
+        #just set defaults for now
+        this.gross = 0
+        this.net = 0
+        this.withholding = {}
+        this.preTaxBenefits = {}
+        this.postTaxBenefits = {}
+        this.preTaxInvestments = {}
+        this.postTaxInvestments = {}  
+        this.taxable = {}
     
     def printout(this):
         print('Gross pay: $'+"{:.2f}".format(this.gross))
@@ -119,25 +146,29 @@ class w4:
     deductions = 0 #above standard
     
 class career:
-    salary = 0 
-    brackets = {}
-    preTaxBenefits = {} #monthly
-    postTaxBenefits = {} #monthly
-    #investments are the amount contributed from pay. The account itself will determine match, etc -----right? should it?
-    preTaxInvestments = {} #monthly
-    postTaxInvestments = {} #monthly
-    federalW4 = w4()
+    #TODO: generate W2
+    #TODO: State w4
+    def __init__(this):
+        #just set defaults for now
+        this.salary = 0 
+        this.brackets = {}
+        this.preTaxBenefits = {} #monthly
+        this.postTaxBenefits = {} #monthly
+        #investments are the amount contributed from pay. The account itself will determine match, etc -----right? should it?
+        this.preTaxInvestments = {} #monthly
+        this.postTaxInvestments = {} #monthly
+        this.federalW4 = w4()
     
     def getPaycheck(this):
         pc = paycheck()
-        taxable = this.getTaxableIncome()
-        medicareTaxable = this.getMedicareTaxableIncome()
-        stateTaxable = this.getStateTaxableIncome()
+        pc.taxable['federal'] = this.getFederalTaxableIncome()
+        pc.taxable['medicare'] = this.getMedicareTaxableIncome()
+        pc.taxable['state'] = this.getStateTaxableIncome()
         pc.gross = this.salary/12
-        pc.withholding['federal'] = (this.brackets['federal'].getTax(taxable)-this.federalW4.credits)/12
-        pc.withholding['state'] = this.brackets['state'].getTax(stateTaxable)/12
-        pc.withholding['medicare'] = this.brackets['medicare'].getTax(medicareTaxable)/12
-        pc.withholding['socialsecurity'] = this.brackets['socialsecurity'].getTax(medicareTaxable)/12
+        pc.withholding['federal'] = (this.brackets['federal'].getTax(pc.taxable['federal'])-this.federalW4.credits)/12
+        pc.withholding['state'] = this.brackets['state'].getTax(pc.taxable['state'])/12
+        pc.withholding['medicare'] = this.brackets['medicare'].getTax(pc.taxable['medicare'])/12
+        pc.withholding['socialsecurity'] = this.brackets['socialsecurity'].getTax(pc.taxable['medicare'])/12
         pc.preTaxBenefits = this.preTaxBenefits
         pc.postTaxBenefits = this.postTaxBenefits
         pc.preTaxInvestments = this.preTaxInvestments
@@ -162,34 +193,35 @@ class career:
             pc.postTaxInvestments[w] = pc.postTaxInvestments[w]*nMonths
         return pc
     
-    def getTaxableIncome(this):
+    def getFederalTaxableIncome(this):
         return this.salary - 12*sum(this.preTaxBenefits.values()) - 12*sum(this.preTaxInvestments.values()) - this.federalW4.deductions
     def getMedicareTaxableIncome(this):
         #same used for social security
         return this.salary - 12*sum(this.preTaxBenefits.values())-12*this.preTaxInvestments[accountType.HSA]
     def getStateTaxableIncome(this):
-        return this.getTaxableIncome() - this.brackets['federal'].getTax(this.getTaxableIncome()) - this.brackets['medicare'].getTax(this.getMedicareTaxableIncome()) - this.brackets['socialsecurity'].getTax(this.getMedicareTaxableIncome())
+        return this.getFederalTaxableIncome() - this.brackets['federal'].getTax(this.getFederalTaxableIncome()) - this.brackets['medicare'].getTax(this.getMedicareTaxableIncome()) - this.brackets['socialsecurity'].getTax(this.getMedicareTaxableIncome())
     def getRaise(this,frac):
         this.salary = this.salary*(1+frac)
 #---------------------------------------
 #retirement accounts    
 class account:
     #TODO: any way to make 401k/ira limits work across trad/roth? Maybe the limits shouldn't even be part of the account, but part of the portfolio instead, and managed before a contribution is ever made
-    #TODO: 
-    name = ''
-    annualMax = 1000000
-    annualGrowthRate = .05
-    balance = 0
-    principal = 0
-    matchRate = 0
-    matchMin = 0        
-    matchMax = 0
-    currentYearContribution = 0
-    currentYearMatch = 0
-    
-    type = accountType.BROKERAGE    
         
- 
+    def __init__(this):
+        this.name = ''
+        this.annualMax = 1000000
+        this.annualGrowthRate = .05
+        this.balance = 0
+        this.principal = 0
+        this.matchRate = 0
+        this.matchMin = 0        
+        this.matchMax = 0
+        this.currentYearContribution = 0
+        this.currentYearMatch = 0
+        this.incomeLimit = 999999999
+    
+        this.type = accountType.BROKERAGE    
+        
     def invest(this,dollars):
         overage = 0
 
@@ -222,7 +254,7 @@ class account:
         this.balance = this.balance-dollars
         principalAmount = 0
         if this.principal>0:
-            if this.type == accountType.ROTH401K:
+            if this.type in [accountType.ROTH401K,accountType.FIVETWENTYNINE]:
                 pFrac = this.principal/this.balance
                 principalAmount = min(pFrac*dollars,principal)
             else:
@@ -239,15 +271,19 @@ class account:
         return this.type == accountType.BROKERAGE
     def isTaxfree(this):
         return this.type in [accountType.ROTH401K,accountType.ROTHIRA,accountType.HSA]
-    def getPenalty(this,age,amount,principalAmount):
+    def isPreStateTax(this):
+        return this.type in [accountType.FIVETWENTYNINE,accountType.TRADITIONAL401K,accountType.TRADITIONALIRA,accountType.HSA]
+    def isStateTaxFree(this):        
+        return this.type in [accountType.FIVETWENTYNINE,accountType.ROTH401K,accountType.ROTHIRA,accountType.HSA]
+    def getEarlyWithdrawalPenalty(this,age,amount,principalAmount):
         #10% early withdrawal penalty on whole withdrawal for traditionals, earnings for roths
-        
+        #TODO: doesn't work for 529
         if age<59.5:
             if this.type in [accountType.TRADITIONAL401K,accountType.TRADITIONALIRA]:
                 return amount*0.1
             elif this.type in [accountType.ROTH401K,accountType.ROTHIRA]:
-                return principalAmount*0.1
-        return 0
+                return (amount-principalAmount)*0.1
+        return 0    
     def endYear(this):
 
         if this.currentYearMatch<this.matchMin:
@@ -288,46 +324,69 @@ class portfolioLog:
             for log in this.logs:
                 row = [log['age'],log['netWorth'],log['tax']]
                 csvWriter.writerow(row)
+  
+# class annual
                 
 class portfolio:
-    accounts = []
-    job = career()
-    cash = 0
-    taxableIncome = 0
-    capitalGainsIncome = 0
-    # priority
-    incomeBracket = taxBracket()
-    capitalGainsBracket = taxBracket()
-    stateBracket = taxBracket()
-    totalTax = 0
-    annualSpending = 1
-    annualIncome = 1
-    age = 1
-    log = portfolioLog()
-    
-    
+
+   
+    def __init__(this,year=2021): 
+        # this.accounts = {}
+        this.job = career()
+        this.cash = 0
+        # this.taxable = {}
+        # this.brackets = {}
+        this.totalTax = 0
+        this.annualSpending = 1
+        this.annualIncome = 1
+        this.age = 1
+        this.year = 2021
+        this.month = 0 #not used yet
+        this.log = portfolioLog()
+        # this.withholding = {}
+        
+        this.accounts = {accountType.HSA:0,accountType.TRADITIONAL401K:0,accountType.ROTH401K:0,accountType.TRADITIONALIRA:0,accountType.ROTHIRA:0,accountType.BROKERAGE:0,accountType.FIVETWENTYNINE:0}
+        this.taxable = {'federal':0,'state':0,'medicare':0,'socialsecurity':0,'capitalgains':0}
+        this.brackets = taxBracket.getBracketsForYear(year)
+        this.withholding = {'federal':0,'state':0,'medicare':0,'socialsecurity':0}
+        
     def getPaid(this): 
-        1
-        #TODO: sort paycheck output into relevant fields here
-        # pc = this.job.getPaycheck()
-        # this.cash = this.cash+pc.net
-        # thiz
-    
-    def investIn(this,accountIdx,amount):
+        
+        pc = this.job.getPaycheck()
+        
+        this.cash = this.cash+pc.net
+        
+        for key in this.taxable.keys():
+            if key in pc.taxable.keys():
+                this.taxable[key] = this.taxable[key]+pc.taxable[key]
+        for key in this.withholding.keys():
+            if key in pc.withholding.keys():
+                this.withholding[key] = this.withholding[key]+pc.withholding[key]
+        #note the next two loop over what's in the paycheck instead of what's here        
+        for key in pc.preTaxInvestments.keys():
+            if key in this.accounts.keys():
+                this.accounts[key].invest(pc.preTaxInvestments[key])
+        for key in pc.postTaxInvestments.keys():
+            if key in this.accounts.keys():
+                this.accounts[key].invest(pc.postTaxInvestments[key])
+        
+    def contributeTo(this,acctType,amount):
         if amount>this.cash:
             raise ValueError('That is more money than you have')
-        acct = this.accounts[accountIdx]
+        acct = this.accounts[acctType]
         acct.invest(amount)
         if acct.isPretax:
-            this.taxableIncome = this.taxableIncome-amount
+            this.taxable['federal'] = this.taxable['federal']-amount
+        if acct.isPreStateTax:    
+            this.taxable['state'] = this.taxable['state']-amount
         this.cash = this.cash-amount    
         
-    def withdrawFrom(this,accountIdx,amount):
+    def withdrawFrom(this,acctType,amount):
         #early withdrawal penalty paid at time of withdrawal, but included in total tax
         #income taxes not paid until end of year
-        acct = this.accounts[accountIdx]
+        acct = this.accounts[acctType]
         withdrawal,fromPrincipal = acct.withdraw(amount)
-        penalty = acct.getPenalty(this.age,withdrawal,fromPrincipal)
+        penalty = acct.getEarlyWithdrawalPenalty(this.age,withdrawal,fromPrincipal)
         this.cash = this.cash+withdrawal-penalty
         #penalty included in taxes
         this.totalTax = this.totalTax+penalty 
@@ -337,10 +396,14 @@ class portfolio:
             #TODO: this is treating entire withdrawal from brokerage as capital gains... but I think it should actually just be the earnings? not sure how to calculate
             this.capitalGainsIncome = this.capitalGainsIncome+withdrawal
             
-    def compoundAll(this,years):
-        for acct in this.accounts:
-            acct.compound(years)
-    
+    def compoundAllAnnual(this,years):
+        for acct in this.accounts.values():
+            acct.compoundAnnual(years)
+            
+    def compoundAllMonthly(this,months):
+        for acct in this.accounts.values():
+            acct.compoundMonthly(months)
+            
     def spend(this,amount):
         if amount>this.cash:
             raise ValueError('That is more money than you have')
@@ -348,29 +411,38 @@ class portfolio:
         this.cash = this.cash-amount
     
     def payTaxes(this):
-        allTax = this.currentTaxBurden()
-        this.cash = this.cash-allTax
+        federalBurden,stateBurden,capitalGainsOwed = this.currentTaxBurden()
+        federalOwed = federalBurden - this.federalWithheld
+        stateOwed = stateBurden - this.stateWithheld        
+        allTax = federalBurden + stateBurden + capitalGainsOwed
+        this.cash = this.cash-federalOwed-stateOwed-capitalGainsOwed
         this.totalTax = this.totalTax+allTax
         return allTax
     
     def endYear(this):
-        for acct in this.accounts:
+        for acct in this.accounts.values():
             acct.endYear()
         taxThisYear = this.payTaxes()
-        this.compoundAll(1) #be careful not to compound monthly AND anually
+        # this.compoundAll(1) #be careful not to compound monthly AND anually
         this.spend(this.annualSpending)
         this.log.addEntry(age=this.age,netWorth = this.getNetWorth(),tax = taxThisYear)
     def newYear(this):
+        this.age = this.age+1    
+        this.year = this.year+1
+                
         this.taxableIncome = 0
         this.capitalGainsIncome = 0
-        this.getPaid()
-        this.age = this.age+1    
-        
+        # this.getPaid()
+    
+        this.taxable = {'federal':0,'state':0,'medicare':0,'socialsecurity':0,'capitalgains':0}
+        this.brackets = taxBracket.getBracketsForYear(year)
+        this.withholding = {'federal':0,'state':0,'medicare':0,'socialsecurity':0}
+    
     def currentTaxBurden(this):
-        incomeTax = this.incomeBracket.getTax(this.taxableIncome)
-        stateTax = this.stateBracket.getTax(this.taxableIncome)
-        capitalGainsTax = this.capitalGainsBracket.getTax(this.capitalGainsIncome)
-        return incomeTax+stateTax+capitalGainsTax
+        federalTax = this.incomeBracket.getTax(this.taxable['federal'])
+        stateTax = this.stateBracket.getTax(this.taxable['state'])
+        capitalGainsTax = this.capitalGainsBracket.getTax(this.taxable['capitalgains'])
+        return federalTax,stateTax,capitalGainsTax
 
     def investableFunds(this):
         return this.cash-this.annualSpending-this.currentTaxBurden()
@@ -378,16 +450,17 @@ class portfolio:
     def getNetWorth(this):
         total = 0
         total = total+this.cash
-        for account in this.accounts:
+        for account in this.accounts.values():
             total = total+account.balance
         
         return total
+
 #---------------------------------------
 #examples and tests
 
 def testPaycheck():
     sim = career()
-    sim.salary = 90000
+    sim.salary = 155000
     sim.federalW4 = w4()
     sim.federalW4.credits = 0
     sim.federalW4.deductions = 0
