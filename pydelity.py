@@ -43,12 +43,11 @@ class filingStatus(Enum):
 #taxes
 class taxBracket:
 
-    credits = 0 #uh, not sure on this
-    
-    def __init__(this,t=[],r=[],d=0):
+    def __init__(this,t=[],r=[],d=0,c=0):
         this.thresholds = t
         this.rates = r
         this.stdDeduction = d
+        this.credits = c #uh, not sure on this
     
     def getTax(this,gross):
         for idx in range(len(this.rates)):
@@ -142,8 +141,10 @@ class paycheck:
         print('Net Pay: $' + "{:.2f}".format(this.net))
              
 class w4:
-    credits = 0
-    deductions = 0 #above standard
+    def __init__(this,c=0,d=0,ew=0): #temp names
+        this.credits = c            #CTC, EV, etc
+        this.deductions = d         #above standard... like IRA, etc
+        this.extraWithholding = ew
     
 class career:
     #TODO: generate W2
@@ -165,7 +166,7 @@ class career:
         pc.taxable['medicare'] = this.getMedicareTaxableIncome()
         pc.taxable['state'] = this.getStateTaxableIncome()
         pc.gross = this.salary/12
-        pc.withholding['federal'] = (this.brackets['federal'].getTax(pc.taxable['federal'])-this.federalW4.credits)/12
+        pc.withholding['federal'] = (this.brackets['federal'].getTax(pc.taxable['federal']-this.federalW4.deductions)-this.federalW4.credits+this.federalW4.extraWithholding)/12 #use tax burden with w4 deductions, then subtract w4 credits and add w4 exra WH
         pc.withholding['state'] = this.brackets['state'].getTax(pc.taxable['state'])/12
         pc.withholding['medicare'] = this.brackets['medicare'].getTax(pc.taxable['medicare'])/12
         pc.withholding['socialsecurity'] = this.brackets['socialsecurity'].getTax(pc.taxable['medicare'])/12
@@ -194,7 +195,7 @@ class career:
         return pc
     
     def getFederalTaxableIncome(this):
-        return this.salary - 12*sum(this.preTaxBenefits.values()) - 12*sum(this.preTaxInvestments.values()) - this.federalW4.deductions
+        return this.salary - 12*sum(this.preTaxBenefits.values()) - 12*sum(this.preTaxInvestments.values())
     def getMedicareTaxableIncome(this):
         #same used for social security
         return this.salary - 12*sum(this.preTaxBenefits.values())-12*this.preTaxInvestments[accountType.HSA]
