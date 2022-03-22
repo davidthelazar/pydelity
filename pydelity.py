@@ -1,5 +1,6 @@
 from enum import Enum
 import csv
+import copy
 #TODO: should portfolio/Career know the current year? if so, does 
 #TaxBracket class need to have a failover for unhandled years? 
 #and if so, should it try to predict brackets or just keep the most 
@@ -183,10 +184,10 @@ class Career:
         pc.withholding['state'] = this.brackets['state'].get_tax(pc.taxable['state'])/12
         pc.withholding['medicare'] = this.brackets['medicare'].get_tax(pc.taxable['medicare'])/12
         pc.withholding['socialsecurity'] = this.brackets['socialsecurity'].get_tax(pc.taxable['medicare'])/12
-        pc.preTaxBenefits = this.preTaxBenefits
-        pc.postTaxBenefits = this.postTaxBenefits
-        pc.preTaxInvestments = this.preTaxInvestments
-        pc.postTaxInvestments = this.postTaxInvestments   
+        pc.preTaxBenefits = copy.deepcopy(this.preTaxBenefits)
+        pc.postTaxBenefits = copy.deepcopy(this.postTaxBenefits)
+        pc.preTaxInvestments = copy.deepcopy(this.preTaxInvestments)
+        pc.postTaxInvestments = copy.deepcopy(this.postTaxInvestments)   
         pc.net = pc.gross-pc.withholding['federal']-pc.withholding['state']-pc.withholding['medicare']-pc.withholding['socialsecurity']-sum(pc.preTaxBenefits.values())-sum(pc.postTaxBenefits.values())-sum(pc.preTaxInvestments.values())-sum(pc.postTaxInvestments.values())
         return pc
 
@@ -352,7 +353,7 @@ class Portfolio:
         # this.brackets = {}
         this.totalTax = 0
         this.annualSpending = 1
-        this.annualIncome = 1
+        # this.annualIncome = 1 #this is in career now?
         this.age = 1
         this.year = 2021
         this.month = 0 #not used yet
@@ -360,7 +361,8 @@ class Portfolio:
         this.status = FilingStatus.MARRIEDFILINGJOINT
         # this.withholding = {}
         
-        this.accounts = {AccountType.HSA:0,AccountType.TRADITIONAL401K:0,AccountType.ROTH401K:0,AccountType.TRADITIONALIRA:0,AccountType.ROTHIRA:0,AccountType.BROKERAGE:0,AccountType.FIVETWENTYNINE:0}
+        # this.accounts = {AccountType.HSA:0,AccountType.TRADITIONAL401K:0,AccountType.ROTH401K:0,AccountType.TRADITIONALIRA:0,AccountType.ROTHIRA:0,AccountType.BROKERAGE:0,AccountType.FIVETWENTYNINE:0}
+        this.accounts = {}
         this.taxable = {'federal':0,'state':0,'medicare':0,'socialsecurity':0,'capitalgains':0}
         this.brackets = TaxBracket.get_brackets_for_year(year)
         this.withholding = {'federal':0,'state':0,'medicare':0,'socialsecurity':0}
@@ -470,7 +472,7 @@ class Portfolio:
             total = total+account.balance
         
         return total
-
+    
 #---------------------------------------
 #examples and tests
 
@@ -486,3 +488,30 @@ def test_paycheck():
     sim.postTaxBenefits = {"life":14}
     sim.preTaxInvestments = {AccountType.HSA:300,AccountType.TRADITIONAL401K:1625}
     return sim.get_paycheck(),sim.get_cumulative_paycheck(12)
+# def test_portfolio():
+#     job = Career()
+#     job.salary = 155000
+#     job.federalW4 = W4()
+#     job.federalW4.credits = 0
+#     job.federalW4.deductions = 0
+#     #brackets here are just used for calculating withholding
+#     job.brackets = TaxBracket.get_brackets_for_year(2021)
+#     job.preTaxBenefits = {"dental":39.44,"medical":318.81,"vision":33.83}
+#     job.postTaxBenefits = {"life":14}
+#     job.preTaxInvestments = {AccountType.HSA:300,AccountType.TRADITIONAL401K:1625}
+#
+#     portfolio = Portfolio()
+#     portfolio.job = job
+#     portfolio.cash = 0
+#     # portfolio.taxable = {}
+#     # portfolio.brackets = {}
+#     portfolio.totalTax = 0
+#     portfolio.annualSpending = 60000
+#     portfolio.age = 36
+#     portfolio.year = 2022
+#     portfolio.month = 0 #not used yet
+#     portfolio.log = PortfolioLog()
+#     portfolio.status = FilingStatus.MARRIEDFILINGJOINT
+#     # portfolio.withholding = {}
+#
+    return portfolio
